@@ -4,34 +4,56 @@ const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
 const cors = require("cors");
 const fs = require("fs");
+const path = require("path");
 
 const app = express();
-const port = process.env.PORT || 10000;
+const port = 10000;
 
-app.use(cors());
-
-const upload = multer({ dest: "uploads/" });
-
+// Set ffmpeg path
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// Enable CORS and body parsing
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Create folders if they don't exist
+if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
+if (!fs.existsSync("outputs")) fs.mkdirSync("outputs");
+
+// Configure Multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads"),
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+});
+const upload = multer({ storage });
+
+// Upload endpoint
 app.post("/upload", upload.single("video"), (req, res) => {
   const inputPath = req.file.path;
-  const outputPath = `outputs/output-${Date.now()}.mp4`;
+  const outputPath = "outputs/" + "no-audio-" + req.file.filename;
 
   ffmpeg(inputPath)
     .noAudio()
-    .save(outputPath)
+    .output(outputPath)
     .on("end", () => {
-      res.download(outputPath, () => {
-        fs.unlinkSync(inputPath);
-        fs.unlinkSync(outputPath);
-      });
+      console.log("Audio removed successfully.");
+      res.json({ success: true, downloadUrl: `/download/${path.basename(outputPath)}` });
     })
     .on("error", (err) => {
-      res.status(500).send("Error processing video.");
-    });
+      console.error("Error:", err);
+      res.status(500).json({ success: false, error: "Failed to remove audio" });
+    })
+    .run();
 });
 
+// Serve processed videos
+app.get("/download/:filename", (req, res) => {
+  const filePath = path.join(__dirname, "outputs", req.params.filename);
+  res.download(filePath);
+});
+
+// Start server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
